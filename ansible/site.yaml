@@ -1,0 +1,12 @@
+---
+- import_playbook: provision.yaml
+
+- hosts: linux
+  gather_facts: false
+  tasks:
+    - ping
+
+- hosts: victim
+  gather_facts: false
+  tasks:
+    - ansible.windows.win_ping:

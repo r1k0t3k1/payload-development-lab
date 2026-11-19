@@ -1,0 +1,56 @@
+---
+- name: Terraformによるインフラ構築 & inventory.iniの作成
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    dev_user: dev
+
+  tasks:
+    - name: terraform applyの実行
+      cloud.terraform.terraform:
+        project_path: "{{ playbook_dir }}/../terraform"
+        state: present
+        force_init: true
+      register: terraform
+    
+    - name: show terraform output
+      debug:
+        var: terraform.stdout_lines
+
+    - name: Linuxホストの追加
+      add_host:
+        name: "{{ item.name }}"
+        groups: "{{ item.group }},linux"
+        ansible_host: "{{ item.ip }}"
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "{{ playbook_dir }}/../terraform/keys/dev_id_ed25519"
+        ansible_ssh_common_args: >-
+          -o ProxyJump={{ dev_user }}@{{ terraform.outputs.dev_global_ip.value }}
+          -o StrictHostKeyChecking=accept-new
+      loop:
+        - { name: elk,      group: elk,      ip: "{{ terraform.outputs.elk_private_ip.value }}" }
+        - { name: attacker, group: attacker, ip: "{{ terraform.outputs.attacker_private_ip.value }}" }
+
+    - name: DEV経由でVICTIMのWinRMをローカルにフォワード
+      command: >-
+        ssh -fN -o ExitOnForwardFailure=yes
+        -L 15985:{{ terraform.outputs.victim_private_ip.value }}:5985
+        {{ dev_user }}@{{ terraform.outputs.dev_global_ip.value }}
+        -i "{{ playbook_dir }}/../terraform/keys/dev_id_ed25519"
+      changed_when: false
+
+    - name: VICTIMの追加 (WinRM経由)
+      add_host:
+        name: victim
+        groups: victim
+        ansible_host: 127.0.0.1
+        ansible_port: 15985
+        ansible_connection: winrm
+        ansible_user: victim_admin
+        ansible_password: "Password123!" # terraform outputから取りたい
+        ansible_winrm_scheme: http
+        ansible_winrm_transport: basic
+        ansible_winrm_server_cert_validation: ignore
+
+

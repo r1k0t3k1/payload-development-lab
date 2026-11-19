@@ -22,8 +22,3 @@ variable "my_ip" {
   type = string
   description = "Terraform実行時のグローバルIP 例：0.0.0.0/32"
 }
-
-variable "password" {
-  type = string
-  description = "devインスタンスのdevユーザのパスワード"
-}

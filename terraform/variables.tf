@@ -10,7 +10,3 @@ variable "project_name" {
 data "http" "global_ip" {
   url = "https://ifconfig.me/ip" 
 }
-
-variable "password" {
-  type = string
-}

@@ -9,15 +9,22 @@ resource "aws_instance" "dev" {
 
   user_data = <<-EOF
     <powershell>
-      net user '${local.username}' '${var.password}' /add /expires:never
-      net localgroup Administrators '${local.username}' /add
+      net user '${local.dev_username}' '${local.password}' /add /expires:never
+      net localgroup Administrators '${local.dev_username}' /add
+    
+      Start-Service sshd
+      Set-Service -Name sshd -StartupType 'Automatic'
+      Set-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -Profile Any
+      $ak = 'C:\ProgramData\ssh\administrators_authorized_keys'
+      Set-Content -Encoding Ascii -Path $ak -Value '${tls_private_key.dev.public_key_openssh}'
+      icacls $ak /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
 
-      mkdir C:\Users\${local.username}\.ssh
-      Set-Content -Encoding Ascii -Path 'C:\Users\${local.username}\.ssh\dev-to-elk_id_ed25519' -Value '${tls_private_key.dev_to_elk.private_key_openssh}'
-      icacls C:\Users\${local.username}\.ssh\dev-to-elk_id_ed25519 /inheritance:r /grant:r "${local.username}:R"
+      mkdir C:\Users\${local.dev_username}\.ssh
+      Set-Content -Encoding Ascii -Path 'C:\Users\${local.dev_username}\.ssh\dev-to-elk_id_ed25519' -Value '${tls_private_key.elk.private_key_openssh}'
+      icacls C:\Users\${local.dev_username}\.ssh\dev-to-elk_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
 
-      Set-Content -Encoding Ascii -Path 'C:\Users\${local.username}\.ssh\dev-to-attacker_id_ed25519' -Value '${tls_private_key.dev_to_attacker.private_key_openssh}'
-      icacls C:\Users\${local.username}\.ssh\dev-to-attacker_id_ed25519 /inheritance:r /grant:r "${local.username}:R"
+      Set-Content -Encoding Ascii -Path 'C:\Users\${local.dev_username}\.ssh\dev-to-attacker_id_ed25519' -Value '${tls_private_key.attacker.private_key_openssh}'
+      icacls C:\Users\${local.dev_username}\.ssh\dev-to-attacker_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
 
       Set-Item WSMan:\localhost\Client\TrustedHosts -Value ${aws_instance.victim.private_ip} -Force
     </powershell>
@@ -42,6 +49,14 @@ resource "aws_security_group" "dev" {
     cidr_blocks = [var.my_ip]
   }
   
+  ingress {
+    description = "Allow SSH from my ip only"
+    from_port = 22
+    to_port   = 22
+    protocol  = "tcp" 
+    cidr_blocks = [var.my_ip]
+  }
+
   egress {
     from_port = 0
     to_port   = 0
@@ -50,13 +65,34 @@ resource "aws_security_group" "dev" {
   }
 }
 
-resource "tls_private_key" "dev_to_elk" {
+resource "tls_private_key" "dev" {
   algorithm = "ED25519" 
 }
 
-resource "aws_key_pair" "dev_to_elk" {
-  key_name   = "${var.project_name}-dev-to-elk"
-  public_key = tls_private_key.dev_to_elk.public_key_openssh
+resource "aws_key_pair" "dev" {
+  key_name   = "${var.project_name}-key-dev"
+  public_key = tls_private_key.dev.public_key_openssh
+}
+
+resource "local_file" "dev" {
+  content         = tls_private_key.dev.private_key_openssh
+  filename        = "${path.root}/keys/dev_id_ed25519"
+  file_permission = "0600"
+}
+
+resource "tls_private_key" "elk" {
+  algorithm = "ED25519" 
+}
+
+resource "aws_key_pair" "elk" {
+  key_name   = "${var.project_name}-key-elk"
+  public_key = tls_private_key.elk.public_key_openssh
+}
+
+resource "local_file" "elk" {
+  content         = tls_private_key.elk.private_key_openssh
+  filename        = "${path.root}/keys/elk_id_ed25519"
+  file_permission = "0600"
 }
 
 
@@ -69,7 +105,7 @@ resource "aws_instance" "elk" {
     aws_security_group.lab_internal.id,
     aws_security_group.elk.id,
   ]
-  key_name                    = aws_key_pair.dev_to_elk.key_name
+  key_name                    = aws_key_pair.elk.key_name
   user_data_replace_on_change = true
 
   user_data = <<-EOF
@@ -158,7 +194,7 @@ resource "aws_instance" "attacker" {
     aws_security_group.lab_internal.id,
     aws_security_group.attacker.id,
   ]
-  key_name                    = aws_key_pair.dev_to_attacker.key_name
+  key_name                    = aws_key_pair.attacker.key_name
   user_data_replace_on_change = true
 
   user_data = <<-EOF
@@ -182,13 +218,19 @@ resource "aws_security_group" "attacker" {
   }
 }
 
-resource "tls_private_key" "dev_to_attacker" {
+resource "tls_private_key" "attacker" {
   algorithm = "ED25519" 
 }
 
-resource "aws_key_pair" "dev_to_attacker" {
-  key_name   = "${var.project_name}-dev-to-attacker"
-  public_key = tls_private_key.dev_to_attacker.public_key_openssh
+resource "aws_key_pair" "attacker" {
+  key_name   = "${var.project_name}-key-attacker"
+  public_key = tls_private_key.attacker.public_key_openssh
+}
+
+resource "local_file" "attacker" {
+  content         = tls_private_key.attacker.private_key_openssh
+  filename        = "${path.root}/keys/attacker_id_ed25519"
+  file_permission = "0600"
 }
 
 ########## Lab internal SG ##########

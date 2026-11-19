@@ -19,5 +19,4 @@ module "ec2" {
   public_subnet_id    = module.vpc.public_subnet_id
   private_subnet_id    = module.vpc.private_subnet_id
   my_ip        = local.my_ip 
-  password     = var.password
 }
