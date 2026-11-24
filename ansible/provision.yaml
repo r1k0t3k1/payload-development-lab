@@ -21,36 +21,45 @@
     - name: Linuxホストの追加
       add_host:
         name: "{{ item.name }}"
-        groups: "{{ item.group }},linux"
+        groups: "{{ item.group }}, linux"
         ansible_host: "{{ item.ip }}"
-        ansible_user: ubuntu
+        ansible_user: "{{ item.username }}"
         ansible_ssh_private_key_file: "{{ playbook_dir }}/../terraform/keys/dev_id_ed25519"
         ansible_ssh_common_args: >-
-          -o ProxyJump={{ dev_user }}@{{ terraform.outputs.dev_global_ip.value }}
-          -o StrictHostKeyChecking=accept-new
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10
+            -o ProxyCommand="ssh -W %h:%p -i {{ playbook_dir }}/../terraform/keys/dev_id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null dev@{{ terraform.outputs.dev_global_ip.value }}"
+            -i {{ playbook_dir }}/../terraform/keys/{{ item.sshkey }}
       loop:
-        - { name: elk,      group: elk,      ip: "{{ terraform.outputs.elk_private_ip.value }}" }
-        - { name: attacker, group: attacker, ip: "{{ terraform.outputs.attacker_private_ip.value }}" }
+        - { name: "elk",      group: elk,      ip: "{{ terraform.outputs.elk_private_ip.value }}",      username: "ubuntu", sshkey: "elk_id_ed25519" }
+        - { name: "attacker", group: attacker, ip: "{{ terraform.outputs.attacker_private_ip.value }}", username: "ubuntu", sshkey: "attacker_id_ed25519" }
 
-    - name: DEV経由でVICTIMのWinRMをローカルにフォワード
-      command: >-
-        ssh -fN -o ExitOnForwardFailure=yes
-        -L 15985:{{ terraform.outputs.victim_private_ip.value }}:5985
-        {{ dev_user }}@{{ terraform.outputs.dev_global_ip.value }}
-        -i "{{ playbook_dir }}/../terraform/keys/dev_id_ed25519"
-      changed_when: false
-
-    - name: VICTIMの追加 (WinRM経由)
+    - name: Windowsホストの追加
       add_host:
-        name: victim
-        groups: victim
-        ansible_host: 127.0.0.1
-        ansible_port: 15985
-        ansible_connection: winrm
-        ansible_user: victim_admin
-        ansible_password: "Password123!" # terraform outputから取りたい
-        ansible_winrm_scheme: http
-        ansible_winrm_transport: basic
-        ansible_winrm_server_cert_validation: ignore
+        name: "{{ item.name }}"
+        groups: "{{ item.group }}, windows"
+        ansible_host: "{{ item.ip }}"
+        ansible_user: "{{ item.username }}"
+        ansible_connection: ssh
+        ansible_shell_type: cmd
+        ansible_ssh_private_key_file: "{{ playbook_dir }}/../terraform/keys/dev_id_ed25519"
+        ansible_ssh_common_args: >-
+            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10
+            -o ProxyCommand="ssh -W %h:%p -i {{ playbook_dir }}/../terraform/keys/dev_id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null dev@{{ terraform.outputs.dev_global_ip.value }}"
+            -i {{ playbook_dir }}/../terraform/keys/{{ item.sshkey }}
+      loop:
+        - { name: "victim", group: victim,   ip: "{{ terraform.outputs.victim_private_ip.value }}",   username: "victim_admin", sshkey: "victim_admin_id_ed25519" }
+
+    #- name: VICTIMの追加 (WinRM経由)
+    #  add_host:
+    #    name: victim
+    #    groups: victim
+    #    ansible_host: 127.0.0.1
+    #    ansible_port: 15985
+    #    ansible_connection: winrm
+    #    ansible_user: victim_admin
+    #    ansible_password: "Password123!" # terraform outputから取りたい
+    #    ansible_winrm_scheme: http
+    #    ansible_winrm_transport: basic
+    #    ansible_winrm_server_cert_validation: ignore
 
 

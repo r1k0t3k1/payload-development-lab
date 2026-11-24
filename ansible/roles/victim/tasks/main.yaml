@@ -1,0 +1,4 @@
+---
+- name: トークン参照テスト
+  ansible.builtin.debug:
+    msg: "{{ victim_enrollment_token }}"

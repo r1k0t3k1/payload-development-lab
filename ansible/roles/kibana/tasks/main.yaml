@@ -1,0 +1,256 @@
+---
+- name: Elasticsearch が応答するまで待つ
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}:9200"
+    validate_certs: false
+    status_code: 401
+  register: es_up
+  retries: 30
+  delay: 5
+
+- name: Kibanaの設定ファイルをコピー
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/roles/kibana/files/kibana.yml"
+    dest: "/opt/kibana-{{ es_version }}/config/"
+    owner: ubuntu
+    group: ubuntu
+    mode: 0644
+    force: true
+  run_once: true
+
+- name: ElasticSearchでKibanaのエンロールトークン発行
+  ansible.builtin.shell:
+    cmd: bin/elasticsearch-create-enrollment-token -s kibana
+    chdir: "/opt/elasticsearch-{{ es_version }}"
+  run_once: true
+  retries: 3
+  delay: 10
+  register: enrollment_token
+
+- name: KibanaをElasticSearchにEnroll
+  ansible.builtin.shell:
+    cmd: "bin/kibana-setup --enrollment-token {{ enrollment_token.stdout }}"
+    chdir: "/opt/kibana-{{ es_version }}"
+  run_once: true
+  register: enrollment_result
+
+- name: Enrollment結果のデバッグ
+  ansible.builtin.debug:
+    msg: "Enrollment result:\n {{ enrollment_result.stdout }}"
+
+- name: Kibanaのサービス作成
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/kibana.service
+    content: |
+      [Unit]
+      Description=Kibana
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=ubuntu
+      ExecStart=/opt/kibana-{{ es_version }}/bin/kibana
+      Restart=on-failure
+      LimitNOFILE=65536
+
+      [Install]
+      WantedBy=multi-user.target
+  become: true
+
+- name: Kibana起動動 & 有効化
+  ansible.builtin.systemd:
+    name: kibana
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Kibanaの起動待ち
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 5601
+    delay: 10
+    timeout: 180
+
+- name: Elasticsearchのパスワードリセット
+  ansible.builtin.shell:
+    cmd: bin/elasticsearch-reset-password -u elastic -b -s
+    chdir: /opt/elasticsearch-{{ es_version }}
+  run_once: true
+  register: elastic_password
+
+- name: ElasticSearchのパスワード
+  ansible.builtin.debug:
+    msg: "ElasticSearch: {{ elastic_password.stdout }}"
+
+- name: Fleet Server追加用のService Tokenを発行
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:5601/api/fleet/service_tokens"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    validate_certs: false
+    status_code: 200
+  retries: 3
+  delay: 10
+  register: fleet_token
+  no_log: true
+
+- name: ElasticSearchのCA証明書のフィンガープリント取得
+  ansible.builtin.shell: >
+    openssl x509 -noout -fingerprint -sha256
+    -in /opt/elasticsearch-{{ es_version }}/config/certs/http_ca.crt
+    | sed 's/.*=//; s/://g' | tr '[:upper:]' '[:lower:]'
+  register: ca_fp
+  changed_when: false
+
+- name: Fleet Server Hostを追加
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:5601/api/fleet/fleet_server_hosts"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    headers: { kbn-xsrf: "true" }
+    body_format: json
+    body:
+      host_urls: ["https://{{ ansible_host }}:8220"]
+      is_default: true
+      name: "Fleet Server"
+    validate_certs: false
+    status_code: 200
+  register: host
+
+- name: Fleet Server Host
+  ansible.builtin.debug:
+    msg: "{{ host }}"
+
+- name: Fleet Server ポリシーを作成（統合込み）
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:5601/api/fleet/agent_policies"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    headers: { kbn-xsrf: "true" }
+    body_format: json
+    body:
+      name: "Fleet Server Policy"
+      namespace: "default"
+      has_fleet_server: true       # ← これでFleet Server統合が入る
+    validate_certs: false
+    status_code: 200
+  register: policy
+
+- name: Fleet Server Policy
+  ansible.builtin.debug:
+    msg: "{{ policy }}"
+    
+- name: Fleet Serverをインストール
+  ansible.builtin.command: >
+    ./elastic-agent install -f
+    --fleet-server-es=https://127.0.0.1:9200
+    --fleet-server-policy={{ policy.json.item.id }}
+    --fleet-server-service-token={{ fleet_token.json.value }}
+    --fleet-server-es-ca-trusted-fingerprint={{ ca_fp.stdout }}
+    --fleet-server-port=8220
+    --install-servers
+  args:
+    chdir: /opt/elastic-agent-{{ es_version }}-linux-x86_64
+  become: true
+  register: fleet_install
+
+- name: VictimにAgent用のポリシーを作成
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:5601/api/fleet/agent_policies"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    headers: { kbn-xsrf: "true" }
+    body_format: json
+    body:
+      name: "Victim Agent Policy"
+      namespace: "default"
+      monitoring_enabled: [
+        "logs",
+        "metrics",
+        "traces"
+      ]
+    validate_certs: false
+    status_code: 200
+  register: victim_policy
+
+- name: Victim Agent Policy
+  ansible.builtin.debug:
+    msg: "{{ victim_policy }}"
+
+- name: Elastic Defendのバージョンを取得
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:5601/api/fleet/epm/packages/endpoint?full=true&prerelease=false"
+    method: GET
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    headers: { kbn-xsrf: "true" }
+    validate_certs: false
+    status_code: 200
+  register: version
+
+- name: Elastic Defend を VICTIM ポリシーに追加
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:5601/api/fleet/package_policies"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body: # 実際に飛ぶリクエストから持ってきた
+      name: "Victim-Defend"
+      description: ""
+      namespace: "default"
+      policy_id: "{{ victim_policy.json.item.id }}"
+      policy_ids: ["{{ victim_policy.json.item.id }}"]
+      enabled: true
+      inputs:
+        - enabled: true
+          streams: []
+          type: "ENDPOINT_INTEGRATION_CONFIG"
+          config:
+            _config:
+              value:
+                type: "endpoint"
+                endpointConfig:
+                  preset: "EDRComplete"
+      package:
+        name: "endpoint"
+        title: "Elastic Defend"
+        version: "{{ version.json.item.version }}"
+      force: false
+      create_dataset_templates: true
+    validate_certs: false
+    status_code: [200]
+    timeout: 300
+  register: defend
+
+- name: Elastic Defend Integration
+  ansible.builtin.debug:
+    msg: "{{ defend }}"
+
+- name: ElasticSearchでVictimのエンロールトークン発行
+  ansible.builtin.shell:
+    cmd: bin/elasticsearch-create-enrollment-token -s node --url "https://{{ ansible_host }}:9200"
+    chdir: "/opt/elasticsearch-{{ es_version }}"
+  run_once: true
+  retries: 3
+  delay: 10
+  register: victim_enrollment_token
+
+- name: factsにトークンを設定
+  ansible.builtin.set_fact:
+    victim_enrollment_token: "{{ victim_enrollment_token.stdout }}"

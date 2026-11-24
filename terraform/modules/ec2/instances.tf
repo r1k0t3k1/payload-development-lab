@@ -26,6 +26,9 @@ resource "aws_instance" "dev" {
       Set-Content -Encoding Ascii -Path 'C:\Users\${local.dev_username}\.ssh\dev-to-attacker_id_ed25519' -Value '${tls_private_key.attacker.private_key_openssh}'
       icacls C:\Users\${local.dev_username}\.ssh\dev-to-attacker_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
 
+      Set-Content -Encoding Ascii -Path 'C:\Users\${local.dev_username}\.ssh\dev-to-victim_admin_id_ed25519' -Value '${tls_private_key.victim_admin.private_key_openssh}'
+      icacls C:\Users\${local.dev_username}\.ssh\dev-to-victim_admin_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
+
       Set-Item WSMan:\localhost\Client\TrustedHosts -Value ${aws_instance.victim.private_ip} -Force
     </powershell>
   EOF
@@ -76,7 +79,7 @@ resource "aws_key_pair" "dev" {
 
 resource "local_file" "dev" {
   content         = tls_private_key.dev.private_key_openssh
-  filename        = "${path.root}/keys/dev_id_ed25519"
+  filename        = "${path.root}/keys/${local.dev_sshkey_filename}"
   file_permission = "0600"
 }
 
@@ -91,7 +94,7 @@ resource "aws_key_pair" "elk" {
 
 resource "local_file" "elk" {
   content         = tls_private_key.elk.private_key_openssh
-  filename        = "${path.root}/keys/elk_id_ed25519"
+  filename        = "${path.root}/keys/${local.elk_sshkey_filename}"
   file_permission = "0600"
 }
 
@@ -100,13 +103,15 @@ resource "local_file" "elk" {
 resource "aws_instance" "elk" {
   ami                         = "ami-0f122bd24f21fd99f" # Ubuntu Server 26.04 LTS
   instance_type               = "t3.xlarge"
-  subnet_id                   = var.private_subnet_id
-  vpc_security_group_ids = [
-    aws_security_group.lab_internal.id,
-    aws_security_group.elk.id,
-  ]
+  subnet_id                   = var.public_subnet_id
+  vpc_security_group_ids = [aws_security_group.elk.id]
   key_name                    = aws_key_pair.elk.key_name
   user_data_replace_on_change = true
+  
+  root_block_device {
+    volume_type = "gp3"
+    volume_size = "100"
+  }
 
   user_data = <<-EOF
   EOF
@@ -120,12 +125,20 @@ resource "aws_security_group" "elk" {
   name = "${var.project_name}-sg-elk"
   vpc_id = var.vpc_id
   
-  ingress {
-    description = "Allow SSH from dev only"
-    from_port = 22
-    to_port   = 22
-    protocol  = "tcp" 
+  ingress { # 内向きは内部+DEVからのみに制限
+    description     = "from DEV (SSH/Kibana/ES)"
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
     security_groups = [aws_security_group.dev.id]
+  }
+
+  egress { # ElasticeSearch用に外向きは許可
+    description     = "internet outbound"
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1" 
+    cidr_blocks     = ["0.0.0.0/0"]
   }
 }
 
@@ -143,25 +156,24 @@ resource "aws_instance" "victim" {
 
   user_data = <<-EOF
     <powershell>
-      $pw  = ConvertTo-SecureString 'Password123!' -AsPlainText -Force
-      New-LocalUser -Name 'victim' -Password $pw -PasswordNeverExpires -AccountNeverExpires
-      Add-LocalGroupMember -Group 'Remote Management Users' -Member 'victim'
-      $pwa = ConvertTo-SecureString 'Password123!' -AsPlainText -Force
-      New-LocalUser -Name 'victim_admin' -Password $pwa -PasswordNeverExpires -AccountNeverExpires
-      Add-LocalGroupMember -Group 'Administrators' -Member 'victim_admin'
+      $pw  = ConvertTo-SecureString '${local.password}' -AsPlainText -Force
+      New-LocalUser -Name '${local.victim_username}' -Password $pw -PasswordNeverExpires -AccountNeverExpires
+      Add-LocalGroupMember -Group 'Remote Management Users' -Member '${local.victim_username}'
 
-      Enable-PSRemoting -Force -SkipNetworkProfileCheck
-      Set-Service -Name WinRM -StartupType Automatic
-      Start-Service WinRM
+      $pwa = ConvertTo-SecureString '${local.password}' -AsPlainText -Force
+      New-LocalUser -Name '${local.victim_admin_username}' -Password $pwa -PasswordNeverExpires -AccountNeverExpires
+      Add-LocalGroupMember -Group 'Administrators' -Member '${local.victim_admin_username}'
 
-      Set-Item -Path WSMan:\localhost\Service\Auth\Basic       -Value $true
-      Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $true
+      $ak = 'C:\ProgramData\ssh\administrators_authorized_keys'
+      Set-Content -Encoding Ascii -Path $ak -Value '${tls_private_key.victim_admin.public_key_openssh}'
+      icacls $ak /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
 
-      $cert = New-SelfSignedCertificate -DnsName "victim" -CertStoreLocation Cert:\LocalMachine\My
-      New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $cert.Thumbprint -Force
-
-      New-NetFirewallRule -DisplayName "WinRM HTTP"  -Direction Inbound -Protocol TCP -LocalPort 5985 -Action Allow
-      New-NetFirewallRule -DisplayName "WinRM HTTPS" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow
+      $k = C:\Users\${local.victim_username}\.ssh\
+      Set-Content -Encoding Ascii -Path $k -Value '${tls_private_key.victim.public_key_openssh}'
+    
+      Start-Service sshd
+      Set-Service -Name sshd -StartupType 'Automatic'
+      Set-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -Profile Any
     </powershell>
   EOF
 
@@ -176,13 +188,43 @@ resource "aws_security_group" "victim" {
   vpc_id = var.vpc_id
   
   ingress {
-    description = "Allow WinRM from dev only"
-    from_port = 5985
-    to_port   = 5986
+    description = "Allow SSH from dev only"
+    from_port = 22
+    to_port   = 22
     protocol  = "tcp" 
     security_groups = [aws_security_group.dev.id]
   }
 
+}
+
+resource "tls_private_key" "victim" {
+  algorithm = "ED25519" 
+}
+
+resource "aws_key_pair" "victim" {
+  key_name   = "${var.project_name}-key-victim"
+  public_key = tls_private_key.victim.public_key_openssh
+}
+
+resource "local_file" "victim" {
+  content         = tls_private_key.victim.private_key_openssh
+  filename        = "${path.root}/keys/${local.victim_sshkey_filename}"
+  file_permission = "0600"
+}
+
+resource "tls_private_key" "victim_admin" {
+  algorithm = "ED25519" 
+}
+
+resource "aws_key_pair" "victim_admin" {
+  key_name   = "${var.project_name}-key-victim-admin"
+  public_key = tls_private_key.victim_admin.public_key_openssh
+}
+
+resource "local_file" "victim_admin" {
+  content         = tls_private_key.victim_admin.private_key_openssh
+  filename        = "${path.root}/keys/${local.victim_admin_sshkey_filename}"
+  file_permission = "0600"
 }
 
 ########## ATTACKER ##########
@@ -229,7 +271,7 @@ resource "aws_key_pair" "attacker" {
 
 resource "local_file" "attacker" {
   content         = tls_private_key.attacker.private_key_openssh
-  filename        = "${path.root}/keys/attacker_id_ed25519"
+  filename        = "${path.root}/keys/${local.attacker_sshkey_filename}"
   file_permission = "0600"
 }
 

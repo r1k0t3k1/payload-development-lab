@@ -1,0 +1,56 @@
+---
+- name: コントロールノードにElasticSearchのパッケージをダウンロード
+  ansible.builtin.get_url:
+    url: "{{ item }}"
+    dest: "{{ playbook_dir }}/roles/elasticsearch/files/{{ item | basename }}"
+  delegate_to: localhost
+  run_once: true
+  loop:
+    - "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-{{ es_version }}-linux-x86_64.tar.gz"
+    - "https://artifacts.elastic.co/downloads/kibana/kibana-{{ es_version }}-linux-x86_64.tar.gz"
+    - "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-{{ es_version }}-linux-x86_64.tar.gz"
+
+- name: ターゲットノードにElasticSearchのパッケージをアップロード
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/roles/elasticsearch/files/{{ item }}"
+    dest: "/tmp/{{ item }}"
+    owner: ubuntu
+    group: ubuntu
+    mode: 0644
+  become: true
+  run_once: true
+  loop:
+    - "elasticsearch-{{ es_version }}-linux-x86_64.tar.gz"
+    - "kibana-{{ es_version }}-linux-x86_64.tar.gz"
+    - "elastic-agent-{{ es_version }}-linux-x86_64.tar.gz"
+
+- name: ターゲットノード上でElasticSearchのパッケージを解凍
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ item.src }}"
+    dest: "/opt/"
+    remote_src: yes
+    owner: ubuntu
+    group: ubuntu
+    creates: "/opt/{{ item.dest }}"
+  become: true
+  run_once: true
+  loop:
+    - { src: "elasticsearch-{{ es_version }}-linux-x86_64.tar.gz", dest: "elasticsearch-{{ es_version }}" }
+    - { src: "kibana-{{ es_version }}-linux-x86_64.tar.gz",        dest: "kibana-{{ es_version }}" }
+    - { src: "elastic-agent-{{ es_version }}-linux-x86_64.tar.gz", dest: "elastic-agent-{{ es_version }}-linux-x86_64" }
+
+- name: ターゲットノードにElasticSearchの設定ファイルをアップロード
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/roles/elasticsearch/files/elasticsearch.yml"
+    dest: "/opt/elasticsearch-{{ es_version }}/config/"
+    owner: ubuntu
+    group: ubuntu
+    mode: 0644
+    force: false
+  run_once: true
+
+- name: ElasticSearchをバックグラウンドで実行
+  ansible.builtin.shell: 
+    cmd: nohup bin/elasticsearch -d -p pid &
+    chdir: /opt/elasticsearch-{{ es_version }}
+  run_once: true

@@ -1,0 +1,23 @@
+---
+- name: ElasticSearchの設定
+  hosts: elk
+  gather_facts: false
+  pre_tasks:
+    - name: SSH起動待
+      ansible.builtin.wait_for_connection:
+        delay: 15
+        sleep: 15
+        timeout: 300
+    - name: facts収集
+      ansible.builtin.setup:
+
+  roles: 
+    - elasticsearch
+    - kibana
+
+
+- name: Victimの設定
+  hosts: victim
+  gather_facts: false
+  roles:
+    - victim

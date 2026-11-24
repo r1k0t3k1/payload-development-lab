@@ -1,0 +1,5 @@
+---
+- name: WinRM用のSSHソケットを閉じる
+  ansible.builtin.command: ssh -S /tmp/winrm-tunnel.sock -O exit dummy
+  changed_when: false
+  failed_when: false
