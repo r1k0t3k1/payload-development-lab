@@ -11,3 +11,30 @@
   gather_facts: false
   tasks:
     - ansible.windows.win_ping:
+
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Lab アクセス情報出力
+      ansible.builtin.debug:
+        msg:
+          - "========== Labアクセス情報 =========="
+          - "DEV --- グローバルIP   : {{ hostvars['localhost']['dev_global_ip'] }}"
+          - "     |- SSHユーザ名    : dev"
+          - "     └  SSH秘密鍵      : ./terraform/keys/dev_id_ed25519"
+          - ""
+          - "ELK --- プライベートIP : {{ hostvars['elk']['ansible_host'] }}"
+          - "     |- SSHユーザ名    : ubuntu"
+          - "     |- SSH秘密鍵      : ./terraform/keys/elk_id_ed25519(DEVの.sshにも配置済)"
+          - "     |- Kibana URL     : 'http://{{ hostvars['elk']['ansible_host']  }}:5601'"
+          - "     └  Kibana認証情報 : 'elastic:{{ hostvars['elk']['elasticsearch_login_password'] }}'"
+          - ""
+          - "VICTIM --- プライベートIP : {{ hostvars['victim']['ansible_host'] }}"
+          - "        |- SSHユーザ名    : victim_admin"
+          - "        └- SSH秘密鍵      : ./terraform/keys/victim_admin_id_ed25519(DEVの.sshにも配置済)"
+          - ""
+          - "ATTACKER --- プライベートIP : {{ hostvars['attacker']['ansible_host'] }}"
+          - "          |- SSHユーザ名    : ubuntu"
+          - "          └- SSH秘密鍵      : ./terraform/keys/attacker_id_ed25519(DEVの.sshにも配置済)"
+          - "====================================="

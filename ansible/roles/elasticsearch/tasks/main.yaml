@@ -54,3 +54,55 @@
     cmd: nohup bin/elasticsearch -d -p pid &
     chdir: /opt/elasticsearch-{{ es_version }}
   run_once: true
+
+- name: Elasticsearchのパスワードリセット
+  ansible.builtin.shell:
+    cmd: bin/elasticsearch-reset-password -u elastic -b -s
+    chdir: /opt/elasticsearch-{{ es_version }}
+  run_once: true
+  delay: 30
+  retries: 3
+  register: elastic_password
+
+- name: ElasticSearchのパスワードをホスト変数に保存
+  ansible.builtin.set_fact:
+    elasticsearch_login_password: "{{ elastic_password.stdout }}"
+
+- name: ElasticSearchのAPIキーを発行
+  ansible.builtin.uri:
+    url: "https://localhost:9200/_security/api_key"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "for-mcp-server"
+    validate_certs: false
+    status_code: 200
+
+- name: ElasticSearchのtrial開始
+  ansible.builtin.uri:
+    url: "https://localhost:9200/_license/start_trial?acknowledge=true"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    validate_certs: false
+    status_code: 200
+    
+- name: ElasticSearchのtrialライセンス有効化待ち
+  ansible.builtin.uri:
+    url: "https://localhost:9200/_license"
+    method: GET
+    user: elastic
+    password: "{{ elastic_password.stdout }}"
+    force_basic_auth: true
+    validate_certs: false
+    status_code: 200
+  register: license_result
+  ignore_errors: yes
+  until: license_result['json']['license']['type'] == "trial"  
+  retries: 5
+  delay: 10
+

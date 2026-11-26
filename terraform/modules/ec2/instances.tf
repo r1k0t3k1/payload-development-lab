@@ -7,6 +7,11 @@ resource "aws_instance" "dev" {
     aws_security_group.dev.id,
   ]
 
+  root_block_device {
+    volume_type = "gp3"
+    volume_size = "80"
+  }
+
   user_data = <<-EOF
     <powershell>
       net user '${local.dev_username}' '${local.password}' /add /expires:never
@@ -104,7 +109,10 @@ resource "aws_instance" "elk" {
   ami                         = "ami-0f122bd24f21fd99f" # Ubuntu Server 26.04 LTS
   instance_type               = "t3.xlarge"
   subnet_id                   = var.public_subnet_id
-  vpc_security_group_ids = [aws_security_group.elk.id]
+  vpc_security_group_ids = [
+    aws_security_group.elk.id,
+    aws_security_group.lab_internal.id
+  ]
   key_name                    = aws_key_pair.elk.key_name
   user_data_replace_on_change = true
   
@@ -132,6 +140,14 @@ resource "aws_security_group" "elk" {
     protocol        = "-1"
     security_groups = [aws_security_group.dev.id]
   }
+
+  #ingress { # VICTIMからのAgent通信
+  #  description     = "from Victim"
+  #  from_port       = 0
+  #  to_port         = 0
+  #  protocol        = "-1"
+  #  security_groups = [aws_security_group.victim.id]
+  #}
 
   egress { # ElasticeSearch用に外向きは許可
     description     = "internet outbound"
@@ -174,6 +190,9 @@ resource "aws_instance" "victim" {
       Start-Service sshd
       Set-Service -Name sshd -StartupType 'Automatic'
       Set-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -Profile Any
+
+      Uninstall-WindowsFeature -Name Windows-Defender
+      Restart-Computer
     </powershell>
   EOF
 

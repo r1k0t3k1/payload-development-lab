@@ -33,7 +33,7 @@
         - { name: "elk",      group: elk,      ip: "{{ terraform.outputs.elk_private_ip.value }}",      username: "ubuntu", sshkey: "elk_id_ed25519" }
         - { name: "attacker", group: attacker, ip: "{{ terraform.outputs.attacker_private_ip.value }}", username: "ubuntu", sshkey: "attacker_id_ed25519" }
 
-    - name: Windowsホストの追加
+    - name: Windows Victimホストの追加
       add_host:
         name: "{{ item.name }}"
         groups: "{{ item.group }}, windows"
@@ -49,17 +49,20 @@
       loop:
         - { name: "victim", group: victim,   ip: "{{ terraform.outputs.victim_private_ip.value }}",   username: "victim_admin", sshkey: "victim_admin_id_ed25519" }
 
-    #- name: VICTIMの追加 (WinRM経由)
-    #  add_host:
-    #    name: victim
-    #    groups: victim
-    #    ansible_host: 127.0.0.1
-    #    ansible_port: 15985
-    #    ansible_connection: winrm
-    #    ansible_user: victim_admin
-    #    ansible_password: "Password123!" # terraform outputから取りたい
-    #    ansible_winrm_scheme: http
-    #    ansible_winrm_transport: basic
-    #    ansible_winrm_server_cert_validation: ignore
-
-
+    - name: Windows DEVホストの追加
+      add_host:
+        name: "{{ item.name }}"
+        groups: "{{ item.group }}, windows"
+        ansible_host: "{{ item.ip }}"
+        ansible_user: "{{ item.username }}"
+        ansible_connection: ssh
+        ansible_shell_type: cmd
+        ansible_ssh_private_key_file: "{{ playbook_dir }}/../terraform/keys/dev_id_ed25519"
+        ansible_ssh_common_args: >-
+            -o StrictHostKeyChecking=no
+      loop:
+        - { name: "dev", group: dev,   ip: "{{ terraform.outputs.dev_global_ip.value }}", username: "dev" }
+    
+    - name: DEV接続情報をfactsへ保存
+      ansible.builtin.set_fact:
+        dev_global_ip: "{{ terraform.outputs.dev_global_ip.value }}"

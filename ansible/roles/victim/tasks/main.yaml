@@ -1,4 +1,28 @@
 ---
 - name: トークン参照テスト
   ansible.builtin.debug:
-    msg: "{{ victim_enrollment_token }}"
+    msg: "{{ hostvars['elk'].victim_enrollment_token }}"
+
+- name: コントロールノードにElasticAgent(Windows版)をダウンロード
+  ansible.builtin.get_url:
+    url: "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-{{ agent_version }}-windows-x86_64.zip"
+    dest: "{{ playbook_dir }}/roles/victim/files/elastic-agent-{{ agent_version }}-windows-x86_64.zip"
+  delegate_to: localhost
+  run_once: true
+
+- name: ターゲットノードにElasticAgentをアップロード
+  ansible.windows.win_copy:
+    src: "{{ playbook_dir }}/roles/victim/files/elastic-agent-{{ agent_version }}-windows-x86_64.zip"
+    dest: 'C:\Windows\Temp\elastic-agent-{{ agent_version }}-windows-x86_64.zip'
+
+- name: ターゲットノード上でElasticAgentを解凍
+  community.windows.win_unzip:
+    src: 'C:\Windows\Temp\elastic-agent-{{ agent_version }}-windows-x86_64.zip'
+    dest: 'C:\Users\{{ ansible_user }}\elastic-agent'
+    creates: 'C:\Users\{{ ansible_user }}\elastic-agent\elastic-agent-{{ agent_version }}-windows-x86_64'
+  run_once: true
+
+- name: ElasticAgentをEnroll
+  ansible.windows.win_shell:
+    cmd: .\elastic-agent.exe install --force -n --insecure --url https://{{ hostvars['elk'].ansible_host }}:8220 --enrollment-token={{ hostvars['elk'].victim_enrollment_token }}
+    chdir: 'C:\Users\{{ ansible_user }}\elastic-agent\elastic-agent-{{ agent_version }}-windows-x86_64'

@@ -21,3 +21,25 @@
   gather_facts: false
   roles:
     - victim
+
+- name: Attackerの設定
+  hosts: attacker
+  gather_facts: false
+  roles:
+    - sliver
+
+- name: DEVの設定
+  hosts: dev
+  gather_facts: false
+  pre_tasks:
+    - name: SSH起動待
+      ansible.builtin.wait_for_connection:
+        delay: 15
+        sleep: 15
+        timeout: 300
+    - name: facts収集
+      ansible.builtin.setup:
+  roles:
+    - claude_code
+    - rust
+    - go

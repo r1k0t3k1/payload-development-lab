@@ -1,0 +1,29 @@
+---
+- name: wingetをインストール
+  ansible.windows.win_shell: |
+    Install-PackageProvider -Name NuGet -Force | Out-Null
+    Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
+    Repair-WinGetPackageManager -AllUsers
+
+- name: Claude Codeがインストール済みか確認
+  ansible.windows.win_command: winget list --id Anthropic.ClaudeCode -e --accept-source-agreements
+  register: cc_check
+  changed_when: false
+  failed_when: false
+
+- name: Claude Codeのインストール
+  ansible.windows.win_shell: >-
+    winget install --id Anthropic.ClaudeCode -e --silent 
+    --accept-source-agreements --accept-package-agreements
+  when: cc_check.rc != 0
+
+- name: 再接続してPATH読み直し
+  ansible.builtin.meta: reset_connection
+
+- name: Claude Codeのインストール確認
+  ansible.windows.win_shell: claude --version
+  register: cc_version
+  
+- name: Claude Codeのバージョン
+  ansible.builtin.debug:
+    msg: "{{ cc_version.stdout }}"

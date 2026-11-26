@@ -1,0 +1,27 @@
+---
+- name: VC++ Build Toolsのインストール
+  ansible.windows.win_shell: >-
+    winget install --id Microsoft.VisualStudio.BuildTools -e --silent 
+    --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+    --accept-source-agreements --accept-package-agreements
+
+- name: rustup-init.exeのダウンロード
+  ansible.windows.win_get_url:
+    url: https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe
+    dest: C:\Users\{{ ansible_user }}\rustup-init.exe
+
+- name: rustupのインストール
+  ansible.windows.win_shell:
+    cmd: ./rustup-init.exe -y --default-toolchain stable --profile default
+    chdir: C:\Users\{{ ansible_user }}
+
+- name: 再接続してPATH読み直し
+  ansible.builtin.meta: reset_connection
+
+- name: cargoのインストール確認
+  ansible.windows.win_shell: cargo --version
+  register: cargo_version
+
+- name: cargoのバージョン
+  ansible.builtin.debug:
+    msg: "{{ cargo_version.stdout }}"
