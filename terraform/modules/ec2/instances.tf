@@ -23,18 +23,17 @@ resource "aws_instance" "dev" {
       $ak = 'C:\ProgramData\ssh\administrators_authorized_keys'
       Set-Content -Encoding Ascii -Path $ak -Value '${tls_private_key.dev.public_key_openssh}'
       icacls $ak /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
+      
+      $key_dir = 'C:\lab\keys'
+      mkdir $key_dir
+      Set-Content -Encoding Ascii -Path "$key_dir\elk_id_ed25519" -Value '${tls_private_key.elk.private_key_openssh}'
+      icacls "$key_dir\elk_id_ed25519" /inheritance:r /grant:r "${local.dev_username}:R"
 
-      mkdir C:\Users\${local.dev_username}\.ssh
-      Set-Content -Encoding Ascii -Path 'C:\Users\${local.dev_username}\.ssh\dev-to-elk_id_ed25519' -Value '${tls_private_key.elk.private_key_openssh}'
-      icacls C:\Users\${local.dev_username}\.ssh\dev-to-elk_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
+      Set-Content -Encoding Ascii -Path "$key_dir\attacker_id_ed25519" -Value '${tls_private_key.attacker.private_key_openssh}'
+      icacls "$key_dir\attacker_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
 
-      Set-Content -Encoding Ascii -Path 'C:\Users\${local.dev_username}\.ssh\dev-to-attacker_id_ed25519' -Value '${tls_private_key.attacker.private_key_openssh}'
-      icacls C:\Users\${local.dev_username}\.ssh\dev-to-attacker_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
-
-      Set-Content -Encoding Ascii -Path 'C:\Users\${local.dev_username}\.ssh\dev-to-victim_admin_id_ed25519' -Value '${tls_private_key.victim_admin.private_key_openssh}'
-      icacls C:\Users\${local.dev_username}\.ssh\dev-to-victim_admin_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
-
-      Set-Item WSMan:\localhost\Client\TrustedHosts -Value ${aws_instance.victim.private_ip} -Force
+      Set-Content -Encoding Ascii -Path "$key_dir\victim_admin_id_ed25519" -Value '${tls_private_key.victim_admin.private_key_openssh}'
+      icacls "$key_dir\victim_admin_id_ed25519 /inheritance:r /grant:r "${local.dev_username}:R"
     </powershell>
   EOF
 

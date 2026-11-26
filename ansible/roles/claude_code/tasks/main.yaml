@@ -27,3 +27,14 @@
 - name: Claude Codeのバージョン
   ansible.builtin.debug:
     msg: "{{ cc_version.stdout }}"
+
+- name: ElasticSearch MCP Serverの登録
+  ansible.windows.win_shell: >-
+    claude mcp add --transport http elasticsearch 
+    http://{{ hostvars['elk']['ansible_host'] }}:5601/api/agent_builder/mcp
+    --header "Authorization: ApiKey {{ hostvars['elk']['elasticsearch_api_key'] }}"
+
+- name: CLAUDE.md を DEV に配置
+  ansible.windows.win_template:
+    src: "{{ playbook_dir }}/roles/claude_code/files/CLAUDE.md.j2"
+    dest: 'C:\Users\dev\.claude\CLAUDE.md'

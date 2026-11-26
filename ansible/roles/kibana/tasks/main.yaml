@@ -247,19 +247,33 @@
     - { query: 'alert.attributes.tags: "Data Source: Elastic Defend" AND NOT alert.attributes.tags: "OS: Windows"' } # Elastic Defend系のみ
     - { query: 'alert.attributes.tags: "OS: Windows" AND NOT alert.attributes.tags: "Data Source: Elastic Defend"' } # Windowsのみ
 
-# curl -X POST "http://localhost:5601/api/agent_builder/mcp"   -H "Authorization: ApiKey VnRiUkVhSUJlVVF3WnB2aW1rU3k6MVBPWTd5bkJDQ0NvM3VVSXVFRTlhUQ=="   -H "Content-Type: application/json"   -d '{
-#    "id": 1,
-#    "jsonrpc": "2.0",
-#    "method": "initialize",
-#    "params": {
-#      "capabilities": {},
-#      "clientInfo": {
-#        "name": "test-client",
-#        "version": "1.0.0"
-#      },
-#      "protocolVersion": "2024-11-05"
-#    }
-#  }' -H "Accept: application/json"
+- name: MCPサーバー応答確認
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:5601/api/agent_builder/mcp"
+    method: POST
+    headers:
+      Authorization: "ApiKey {{ hostvars['elk']['elasticsearch_api_key'] }}"
+      Content-Type: "application/json"
+      Accept: "application/json,text/event-stream"
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: 1
+      jsonrpc: "2.0"
+      method: "initialize"
+      params: 
+        protocolVersion: "2024-11-05"
+        capabilities: {}
+        clientInfo: 
+          name: "test-client"
+          version: "1.0.0"
+    validate_certs: false
+    status_code: 200
+  register: mcp_check
+
+- name: MCP debug
+  ansible.builtin.debug:
+    msg: "{{ mcp_check }}"
 - name: ElasticSearchでVictimのエンロールトークン発行
   ansible.builtin.uri:
     url: "http://127.0.0.1:5601/api/fleet/enrollment_api_keys?kuery=policy_id:{{ victim_policy.json.item.id }}"
