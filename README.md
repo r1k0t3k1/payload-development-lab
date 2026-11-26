@@ -93,6 +93,5 @@ playbook実行でリソースが作成が開始され、終了するとansible�
 
 ```
 cd terraform
-```
 terraform destroy
 ```
