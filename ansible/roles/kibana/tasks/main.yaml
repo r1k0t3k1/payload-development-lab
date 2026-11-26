@@ -240,8 +240,8 @@
       query: "{{ item.query }}"
     validate_certs: false
     status_code: 200
+    timeout: 60
   register: bulk_enable
-  timeout: 60
   loop: #1000件以上は一気に有効化できなかったので分割実行
     - { query: 'alert.attributes.tags: "OS: Windows" AND alert.attributes.tags: "Data Source: Elastic Defend"' } # 件数絞るため
     - { query: 'alert.attributes.tags: "Data Source: Elastic Defend" AND NOT alert.attributes.tags: "OS: Windows"' } # Elastic Defend系のみ
