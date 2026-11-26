@@ -32,7 +32,7 @@ VICTIMに対してインストールしたAgent経由で、Elastic Defendの検�
 
 トライアルライセンスを有効化しておりMCPサーバーが利用可能。DEVのClaude Codeに設定して検知状況を確認させる想定。
 
-- VICTIM
+## VICTIM
 
 OS: Windows Server 2025
 
@@ -45,7 +45,7 @@ Elastic Defendがインストール済。
 
 このホストではペイロードの実行しか行わない想定。
 
-- ATTACKER
+##ATTACKER
 
 OS: Ubuntu
 
